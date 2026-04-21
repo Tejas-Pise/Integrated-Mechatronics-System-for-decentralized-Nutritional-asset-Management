@@ -1,188 +1,292 @@
 # Integrated Mechatronics System for Decentralized Nutritional Asset Management
 
-An IoT-enabled smart ration kiosk platform that combines embedded control, biometric identity verification, stock sensing, and cloud coordination to deliver transparent and accountable nutritional asset distribution.
+A cyber-physical public distribution platform for controlled, auditable, and low-friction ration dispensing. The system integrates embedded sensing and actuation (ESP32), edge orchestration (Raspberry Pi), and cloud-backed entitlement records (Firebase) to support accountable nutritional asset delivery at decentralized kiosks.
 
-## Overview
+## Abstract
 
-This project is structured as a multi-node system:
+Conventional ration distribution pipelines in decentralized settings are vulnerable to leakage, weak traceability, and inconsistent beneficiary verification. This project proposes and implements a mechatronic kiosk architecture that combines multimodal identity checks, quota-aware dispensing logic, closed-loop gravimetric control, and transaction logging. The design objective is to reduce fraud opportunity, improve service throughput, and maintain verifiable audit trails while preserving practical deployability under constrained infrastructure.
 
-- ESP32 firmware controls field hardware (RFID, fingerprint scanner, load cell, stock sensor, motor, and solenoid).
-- Raspberry Pi runs orchestration, payment, UI, voice workflow, and cloud integration modules.
-- Firebase is used as the intended cloud backend for user, transaction, and stock records.
+## Research Motivation and Problem Statement
 
-The goal is to support decentralized, low-friction ration dispensing with better traceability and fraud resistance.
+Public food distribution systems must satisfy three constraints simultaneously:
 
-## Repository Structure
+1. Identity assurance: only eligible beneficiaries should receive allocations.
+2. Quantity fidelity: physical dispensed mass should match entitlement and payment policy.
+3. Traceable accountability: each transaction should be reconstructable for post-hoc audit.
 
+This repository operationalizes those constraints as a working prototype with a dual-node hardware-software stack and explicit machine-level protocol between nodes.
+
+## Contributions
+
+1. A modular edge architecture separating hard real-time control (ESP32) from business workflow orchestration (Raspberry Pi).
+2. A serial command/event protocol for deterministic coordination of scan, verification, and dispense phases.
+3. A closed-loop dispensing routine based on load-cell feedback and target-mass termination.
+4. A cloud integration layer for entitlement lookup, monthly quota accounting, and transaction persistence.
+5. An operator-facing kiosk interface with voice prompts, stock alerts, and payment flow scaffolding.
+
+## High-Level System Architecture
+
+The platform is organized into three cooperating layers:
+
+1. Embedded control plane (ESP32): sensor IO, actuator control, weight feedback, and stock telemetry.
+2. Edge orchestration plane (Raspberry Pi): user journey, identity flow, payment logic, UI/voice interaction, and cloud sync.
+3. Cloud data plane (Firebase): user records, dispensed quota totals, and transaction logs.
+
+### End-to-End Workflow
+
+1. User initiates session at kiosk.
+2. RFID scan and optional manual card entry identify candidate beneficiary.
+3. Fingerprint match confirms identity linkage.
+4. Cloud quota lookup determines remaining monthly entitlement and scheme type.
+5. If paid scheme, UPI QR is generated and payment confirmation is awaited.
+6. Raspberry Pi requests ESP32 dispensing to target mass.
+7. ESP32 streams real-time weight and sends completion event.
+8. Transaction is recorded and monthly dispensed counter is updated.
+9. Hopper stock telemetry is periodically published and low-stock alerts are raised.
+
+## Repository Layout
+
+```text
 .
-|- ESP32/
-|  |- ration_kiosk_esp32/
-|     |- ration_kiosk_esp32.ino
-|- Firebase/
-|  |- database_rules.json
-|- raspberry_pi/
-|  |- cloud.py
-|  |- config.py
-|  |- main.py
-|  |- payment.py
-|  |- requirements.txt
-|  |- stock.py
-|  |- uart_comm.py
-|  |- ui.py
-|  |- voice.py
+|-- ESP32/
+|   `-- ration_kiosk_esp32/
+|       `-- ration_kiosk_esp32.ino
+|-- Firebase/
+|   `-- database_rules.json
+|-- raspberry_pi/
+|   |-- cloud.py
+|   |-- config.py
+|   |-- main.py
+|   |-- payment.py
+|   |-- requirements.txt
+|   |-- stock.py
+|   |-- uart_comm.py
+|   |-- ui.py
+|   `-- voice.py
+`-- README.md
+```
 
-## Current Status
+## Implementation Status (As of 2026-04-21)
 
-- ESP32 firmware is implemented with UART protocol and sensor-actuator control loops.
-- Raspberry Pi module files and Firebase rules file are present as scaffold files and are currently empty.
+Implemented:
 
-## System Architecture
+1. ESP32 firmware with RFID, fingerprint scan routine, load-cell integration, dispensing control, and ultrasonic stock reporting.
+2. Raspberry Pi orchestration flow in main controller with authentication, quota check, payment branch, dispensing callbacks, and transaction write.
+3. Firebase access module for user lookup, quota calculation, transaction append, and stock updates.
+4. Pygame-based kiosk UI screens and voice prompt layer.
 
-1. User arrives at kiosk and requests ration.
-2. Identity is verified through RFID and/or fingerprint.
-3. Eligibility and quota are checked in backend records.
-4. Payment step is executed (if required by policy).
-5. Raspberry Pi sends dispense command and target weight to ESP32.
-6. ESP32 actuates dispenser until load-cell target is reached.
-7. Stock level and transaction logs are pushed to cloud.
+Partially implemented or placeholder behavior:
 
-## ESP32 Firmware Features
+1. Payment verification currently returns success via placeholder logic and must be replaced by gateway callback/webhook integration.
+2. Manual ration-card entry UI is stubbed in controller.
+3. Firebase security rules file exists but is currently empty and requires deployment-grade hardening.
+4. Python dependency list is currently empty and should be pinned before production deployment.
 
-Implemented in ration_kiosk_esp32.ino:
+## ESP32 Firmware Specification
 
-- RFID read with timeout and UID reporting
-- Fingerprint match with timeout and no-match handling
-- HX711 load-cell tare and weight feedback
-- Stepper-driven dispensing loop with target weight stop condition
-- Solenoid gate control
-- Ultrasonic stock monitoring with low-stock alert
-- UART command/response protocol with Raspberry Pi
+Firmware file: ESP32/ration_kiosk_esp32/ration_kiosk_esp32.ino
 
-### UART Command Protocol (Pi -> ESP32)
+### Sensors and Actuators
 
-- SCAN_RFID
-- SCAN_FINGER
-- DISPENSE:<target_weight>
-- STOP
-- TARE
-- WEIGHT?
+1. RFID: MFRC522 (SPI).
+2. Fingerprint sensor: UART-based Adafruit-compatible module.
+3. Mass measurement: HX711 + load cell.
+4. Hopper level: ultrasonic distance sensor.
+5. Dispense actuation: stepper motor + driver and solenoid gate.
 
-### UART Event/Response Examples (ESP32 -> Pi)
+### Control Semantics
 
-- ESP32_READY
-- RFID_SCANNING
-- RFID:<UID>
-- RFID_TIMEOUT
-- FP_SCANNING
-- FP_MATCH:<id>
-- FP_NO_MATCH
-- FP_TIMEOUT
-- DISPENSE_START
-- WEIGHT:<value>
-- DISPENSE_DONE:<final_weight>
-- DISPENSE_STOP
-- STOCK:<distance_cm>
-- STOCK_LOW:<distance_cm>
+1. Dispenser starts with tare reset, solenoid open, and stepper enable.
+2. Weight samples are emitted during dispensing.
+3. Dispensing halts when current weight exceeds or equals target mass.
+4. Stock distance is reported periodically; threshold breach emits low-stock event.
 
-## Hardware Bill of Materials
+## UART Protocol Contract
 
-- ESP32 development board
-- Raspberry Pi (3/4/5 recommended)
-- MFRC522 RFID module
-- Adafruit-compatible fingerprint sensor
-- HX711 + load cell
-- Ultrasonic distance sensor
-- Stepper motor + driver
-- Solenoid valve/gate actuator
-- Power supply and relay/protection circuitry as required
+### Commands (Raspberry Pi -> ESP32)
 
-## Software Stack
+1. SCAN_RFID
+2. SCAN_FINGER
+3. DISPENSE:<target_weight_kg>
+4. STOP
+5. TARE
+6. WEIGHT?
 
-- Arduino IDE 2.x for ESP32 firmware
-- Python 3.10+ on Raspberry Pi
-- Firebase (Authentication + Realtime Database or Firestore)
+### Events/Responses (ESP32 -> Raspberry Pi)
 
-## Setup Guide
+1. ESP32_READY
+2. RFID_SCANNING
+3. RFID:<UID_HEX>
+4. RFID_TIMEOUT
+5. FP_SCANNING
+6. FP_MATCH:<finger_id>
+7. FP_NO_MATCH
+8. FP_TIMEOUT
+9. DISPENSE_START
+10. WEIGHT:<kg>
+11. DISPENSE_DONE:<kg>
+12. DISPENSE_STOP
+13. STOCK:<distance_cm>
+14. STOCK_LOW:<distance_cm>
 
-### 1) ESP32 Setup
+## Raspberry Pi Software Architecture
+
+### Module Responsibilities
+
+1. raspberry_pi/main.py: session state flow, authentication pipeline, scheme-specific branching, and transaction finalization.
+2. raspberry_pi/uart_comm.py: serial transport abstraction, callback dispatch, blocking scan primitives, and dispense streaming callbacks.
+3. raspberry_pi/cloud.py: Firebase initialization and CRUD-style service methods.
+4. raspberry_pi/payment.py: UPI QR generation, payment polling scaffold, and pricing computation.
+5. raspberry_pi/stock.py: stock event handling, cloud stock update, and external alert trigger.
+6. raspberry_pi/ui.py: touchscreen workflows implemented in pygame.
+7. raspberry_pi/voice.py: non-blocking spoken prompts via gTTS with system fallback.
+8. raspberry_pi/config.py: deployment constants for serial, pricing, UI dimensions, and policy thresholds.
+
+### Logical State Machine
+
+At a conceptual level, the controller behaves as a finite-state process:
+
+1. S0 Idle/Welcome
+2. S1 Identity Capture (RFID/manual card)
+3. S2 Biometric Verification
+4. S3 Cloud Quota Evaluation
+5. S4 Scheme Branch (FREE or PAID)
+6. S5 Payment (PAID branch only)
+7. S6 Dispensing
+8. S7 Transaction Commit
+9. S8 Session Completion -> S0
+
+Any validation failure routes to error display and restart from S0.
+
+## Data Model (Firebase, Current Usage)
+
+Observed key paths in current code:
+
+1. users/<ration_card_no>
+2. users/<ration_card_no>/dispensed/<YYYY-MM>
+3. transactions/<ration_card_no>/<auto_key>
+4. stock/hopper_distance_cm
+5. stock/last_updated
+
+Representative user fields:
+
+1. name
+2. ration_card
+3. rfid_uid
+4. fingerprint_id
+5. monthly_quota_kg
+6. scheme_type
+7. family_size
+
+## Experimental and Deployment Prerequisites
+
+### Hardware
+
+1. ESP32 dev board
+2. Raspberry Pi 3/4/5
+3. MFRC522 RFID module
+4. UART fingerprint sensor
+5. HX711 + calibrated load cell
+6. Ultrasonic sensor
+7. Stepper motor and driver
+8. Solenoid actuator
+9. Protected power stage, fusing, and relay/driver isolation where required
+
+### Software
+
+1. Arduino IDE 2.x (ESP32 toolchain)
+2. Python 3.10+ on Raspberry Pi
+3. Firebase project with Realtime Database
+4. Linux utilities for audio playback (for example mpg123 or espeak fallback)
+
+## Reproducible Setup Procedure
+
+### A. Flash and Validate ESP32
 
 1. Open ESP32/ration_kiosk_esp32/ration_kiosk_esp32.ino in Arduino IDE.
-2. Install required libraries:
-   - MFRC522
-   - Adafruit Fingerprint Sensor Library
-   - HX711
-3. Select board: ESP32 Dev Module.
-4. Verify pin mappings in code match your wiring.
-5. Upload firmware and open serial monitor at 115200 baud.
+2. Install required libraries: MFRC522, Adafruit Fingerprint Sensor Library, HX711.
+3. Select ESP32 Dev Module and set baud to 115200.
+4. Confirm pin mapping against physical wiring.
+5. Upload and verify serial startup event ESP32_READY.
 
-### 2) Raspberry Pi Setup
+### B. Configure Raspberry Pi Runtime
 
-1. Install Python 3.10+.
-2. Create and activate virtual environment.
-3. Add dependencies in requirements.txt.
-4. Install dependencies with pip.
-5. Implement module logic in:
-   - main.py
-   - uart_comm.py
-   - cloud.py
-   - payment.py
-   - stock.py
-   - ui.py
-   - voice.py
+1. Create Python virtual environment.
+2. Install dependencies required by current modules (serial, pygame, firebase-admin, qrcode, pillow, gTTS, requests).
+3. Place Firebase service account JSON at raspberry_pi/firebase_service_key.json or update path in cloud module.
+4. Update raspberry_pi/config.py with project-specific database URL, pricing, UART port, and payment identity.
+5. Launch controller from raspberry_pi/main.py.
 
-### 3) Firebase Setup
+### C. Configure Firebase
 
-1. Create Firebase project.
-2. Choose database mode (Realtime Database or Firestore).
-3. Configure security rules in Firebase/database_rules.json.
-4. Add credentials/config to Raspberry Pi configuration layer.
+1. Populate beneficiary records with ration card, RFID UID, fingerprint ID, quota, and scheme type.
+2. Add database security rules before field testing.
+3. Validate read/write privileges using least-privilege principle.
 
-## Suggested Python Module Responsibilities
+## Calibration and Validation Protocol
 
-- main.py: application entry point and workflow orchestration
-- uart_comm.py: serial transport and command/response parsing
-- cloud.py: cloud sync, quota checks, transaction persistence
-- payment.py: payment gateway integration and status handling
-- stock.py: stock threshold policies and refill notifications
-- ui.py: kiosk display and interaction flow
-- voice.py: local language prompts and audio feedback
-- config.py: environment variables, serial port, and limits
+For defensible performance reporting, calibrate and evaluate under controlled conditions.
 
-## Data Model (Suggested)
+1. Load-cell calibration:
+   Use at least three known masses spanning expected dispense range and fit scale factor.
+2. Dispense accuracy test:
+   For each target mass, run repeated trials and report mean absolute error and standard deviation.
+3. Biometric flow reliability:
+   Measure false rejection events and timeout rate across user cohorts.
+4. End-to-end latency:
+   Report timing from session start to dispense completion under free and paid branches.
+5. Stock alert validity:
+   Confirm threshold crossing behavior against measured hopper levels.
 
-- users: id, uid, fingerprint_id, entitlement, status
-- ration_transactions: user_id, item, quantity, timestamp, amount, status
-- stock: item, current_level, threshold, last_refill
-- kiosks: kiosk_id, firmware_version, health, last_seen
+Useful metrics include:
 
-## Security and Reliability Notes
+1. Mean dispense error (kg)
+2. 95th percentile session duration (s)
+3. Successful first-attempt biometric rate (%)
+4. Cloud commit success rate (%)
+5. Stock alert precision/recall against manual ground truth
 
-- Validate all UART messages and reject malformed payloads.
-- Add retry and timeout handling around cloud and payment APIs.
-- Use signed request tokens between kiosk and backend.
-- Keep audit logs immutable for transaction traceability.
-- Calibrate load-cell factor per physical assembly before deployment.
+## Security, Safety, and Ethical Considerations
 
-## Development Roadmap
+1. Identity data is sensitive: store only required biometric references and enforce strict access control.
+2. Payment and transaction data require tamper-evident logging and secure transport.
+3. Serial protocol should be hardened against malformed or replayed command payloads.
+4. Power electronics must include actuator-safe defaults and fault handling on reboot.
+5. Inclusion concerns: provide assisted flow for users with fingerprint/RFID acquisition difficulties.
 
-1. Implement Raspberry Pi UART manager and finite-state workflow.
-2. Integrate Firebase authentication and quota validation.
-3. Implement payment flow and transaction finalization.
-4. Add UI and multilingual voice prompts.
-5. Build end-to-end tests with simulated UART responses.
-6. Deploy pilot on one kiosk and tune calibration/thresholds.
+## Limitations
 
-## Future Enhancements
+1. Payment confirmation path is currently non-production and must be replaced with verifiable gateway reconciliation.
+2. Manual card-number input is currently a stub.
+3. No formal automated test suite is committed yet for UART simulation and integration regression.
+4. Firebase rule set and dependency lockfile are not yet finalized.
 
-- Offline-first sync with queued transaction replay
-- OTA updates for ESP32 firmware
-- Edge anomaly detection for fraud patterns
-- Multi-kiosk dashboard with predictive stock alerts
+## Roadmap
 
-## License
+1. Replace payment placeholder with webhook-verified transaction state machine.
+2. Add robust serial parser with checksum/framing and explicit error codes.
+3. Implement local offline queue with eventual cloud reconciliation.
+4. Introduce automated hardware-in-the-loop and protocol-level integration tests.
+5. Add operator analytics dashboard for multi-kiosk monitoring.
 
-Add a project license file (for example, MIT) before public distribution.
+## Recommended Citation
 
-## Contributors
+If you use this repository in an academic report, thesis, or publication, cite it with commit hash and access date. Suggested BibTeX template:
 
-Project team: add member names, roles, and contact channels here.
+```bibtex
+@misc{ims_dnam_2026,
+  title        = {Integrated Mechatronics System for Decentralized Nutritional Asset Management},
+  author       = {Project Team},
+  year         = {2026},
+  howpublished = {Git repository},
+  note         = {Accessed: YYYY-MM-DD, commit: <hash>}
+}
+```
+
+## License and Governance
+
+No license file is currently committed. Add an explicit license (for example MIT, BSD-3-Clause, or Apache-2.0) before external distribution.
+
+## Contact
+
+Add maintainer names, institutional affiliation, and contact channel for deployment collaboration and field validation studies.
